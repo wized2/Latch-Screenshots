@@ -30,31 +30,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Obtain Latch APK
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SRC: build
+      - name: Build Latch debug APK
         run: |
           set -eux
           mkdir -p apk
-          NEED_BUILD=1
-          if [ "${SRC:-build}" = "release" ]; then
-            API="https://api.github.com/repos/wized2/Latch/releases/latest"
-            JSON=$(curl -sS -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API")
-            URL=$(echo "$JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);assets=d.get('assets') or [];
-print(next((a['url'] for a in assets if str(a.get('name','')).endswith('.apk')), ''))")
-            if [ -n "$URL" ]; then
-              curl -sSL -H "Authorization: token $GH_TOKEN" -H "Accept: application/octet-stream" -o apk/latch.apk "$URL"
-              if file apk/latch.apk | grep -qi 'zip\|android'; then NEED_BUILD=0; fi
-            fi
-          fi
-          if [ "$NEED_BUILD" = "1" ]; then
-            git clone --depth 1 https://github.com/wized2/Latch.git /tmp/Latch
-            cd /tmp/Latch
-            chmod +x gradlew
-            ./gradlew :app:assembleDebug --stacktrace
-            cp app/build/outputs/apk/debug/*-debug.apk "$GITHUB_WORKSPACE/apk/latch.apk"
-          fi
+          git clone --depth 1 https://github.com/wized2/Latch.git /tmp/Latch
+          cd /tmp/Latch
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+          cp app/build/outputs/apk/debug/*-debug.apk "$GITHUB_WORKSPACE/apk/latch.apk"
           ls -la "$GITHUB_WORKSPACE/apk/"
           file "$GITHUB_WORKSPACE/apk/latch.apk"
 
@@ -110,8 +94,10 @@ print(next((a['url'] for a in assets if str(a.get('name','')).endswith('.apk')),
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add screenshots/*.png
-          if git diff --staged --quiet; then echo "No changes"; else
-            git commit -m "chore: update screenshots $(date -u +%Y-%m-%dT%H:%MZ)"
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "chore: update screenshots"
             git push
           fi
 
