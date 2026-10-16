@@ -4,13 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       apk_source:
-        description: 'release = latest GitHub release APK; build = clone Latch and assembleDebug'
+        description: 'release or build'
         required: true
-        default: release
-        type: choice
-        options:
-          - release
-          - build
+        default: build
+        type: string
 
 permissions:
   contents: write
@@ -30,7 +27,6 @@ jobs:
           ls -la /dev/kvm || true
 
       - name: Set up JDK 17
-        if: inputs.apk_source == 'build'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,37 +35,30 @@ jobs:
       - name: Obtain Latch APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SRC: ${{ github.event.inputs.apk_source }}
         run: |
           set -eux
           mkdir -p apk
-          if [ "${{ inputs.apk_source }}" = "release" ]; then
-            # Latest release asset ending in .apk
+          NEED_BUILD=1
+          if [ "${SRC:-build}" = "release" ]; then
             API="https://api.github.com/repos/wized2/Latch/releases/latest"
             JSON=$(curl -sS -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "$API")
             URL=$(echo "$JSON" | python3 -c "import sys,json;d=json.load(sys.stdin);assets=d.get('assets') or [];
-print(next((a['browser_download_url'] for a in assets if a['name'].endswith('.apk')), ''))")
-            if [ -z "$URL" ]; then
-              echo "No APK asset on latest release — falling back to build"
-              echo "NEED_BUILD=1" >> "$GITHUB_ENV"
-            else
-              curl -sSL -H "Authorization: token $GH_TOKEN" -o apk/latch.apk "$URL"
-              echo "NEED_BUILD=0" >> "$GITHUB_ENV"
-              ls -la apk/
+print(next((a['url'] for a in assets if str(a.get('name','')).endswith('.apk')), ''))")
+            if [ -n "$URL" ]; then
+              curl -sSL -H "Authorization: token $GH_TOKEN" -H "Accept: application/octet-stream" -o apk/latch.apk "$URL"
+              if file apk/latch.apk | grep -qi 'zip\|android'; then NEED_BUILD=0; fi
             fi
-          else
-            echo "NEED_BUILD=1" >> "$GITHUB_ENV"
           fi
-
-      - name: Build Latch debug APK
-        if: env.NEED_BUILD == '1'
-        run: |
-          set -eux
-          git clone --depth 1 https://github.com/wized2/Latch.git /tmp/Latch
-          cd /tmp/Latch
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
-          cp app/build/outputs/apk/debug/*-debug.apk "$GITHUB_WORKSPACE/apk/latch.apk"
+          if [ "$NEED_BUILD" = "1" ]; then
+            git clone --depth 1 https://github.com/wized2/Latch.git /tmp/Latch
+            cd /tmp/Latch
+            chmod +x gradlew
+            ./gradlew :app:assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/*-debug.apk "$GITHUB_WORKSPACE/apk/latch.apk"
+          fi
           ls -la "$GITHUB_WORKSPACE/apk/"
+          file "$GITHUB_WORKSPACE/apk/latch.apk"
 
       - name: Emulator + screenshots
         uses: reactivecircus/android-emulator-runner@v2
@@ -93,14 +82,12 @@ print(next((a['browser_download_url'] for a in assets if a['name'].endswith('.ap
             adb shell settings put global transition_animation_scale 0
             adb shell settings put global animator_duration_scale 0
             adb install -r -t apk/latch.apk
-            # Resolve launcher activity
             PKG=com.endroid.latch
             adb shell am force-stop "$PKG" || true
             adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
-            sleep 7
+            sleep 8
             mkdir -p screenshots
             adb exec-out screencap -p > screenshots/01_home.png
-            # Settings gear (top app bar, right)
             adb shell input tap 1000 150
             sleep 3
             adb exec-out screencap -p > screenshots/02_settings.png
@@ -109,30 +96,25 @@ print(next((a['browser_download_url'] for a in assets if a['name'].endswith('.ap
             adb exec-out screencap -p > screenshots/03_settings_scrolled.png
             adb shell input keyevent KEYCODE_BACK
             sleep 2
-            # FAB add (bottom-right)
             adb shell input tap 980 1900
             sleep 3
             adb exec-out screencap -p > screenshots/04_edit_or_create.png
             ls -la screenshots
-            file screenshots/*.png || true
-            # Reject empty/corrupt PNGs
+            file screenshots/*.png
             for f in screenshots/*.png; do
               sz=$(stat -c%s "$f")
-              if [ "$sz" -lt 1000 ]; then echo "bad $f"; exit 1; fi
+              test "$sz" -gt 1000
             done
 
-      - name: Commit screenshots to repo
+      - name: Commit screenshots
         run: |
           set -eux
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add screenshots/*.png
-          git status
-          if git diff --staged --quiet; then
-            echo "No image changes"
-          else
-            git commit -m "chore: update Latch emulator screenshots $(date -u +%Y-%m-%d)"
-            git push origin HEAD:main
+          if git diff --staged --quiet; then echo "No changes"; else
+            git commit -m "chore: update screenshots $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
           fi
 
       - name: Upload artifact
