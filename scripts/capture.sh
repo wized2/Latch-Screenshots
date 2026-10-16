@@ -125,40 +125,50 @@ adb shell input swipe $((W/2)) $((H*4/5)) $((W/2)) $((H/5)) 400
 sleep 1
 adb exec-out screencap -p > raw/03_settings_scrolled.png
 
-# Do NOT system-back from Settings — that can finish the Activity and show launcher.
-# Relaunch Latch for a clean home, then open New rule.
+# Return to Latch cleanly (Settings system activity may still be on stack)
+adb shell am force-stop com.android.settings 2>/dev/null || true
+adb shell am force-stop "$PKG" || true
 adb shell am start -W -n "$PKG/$ACT" || adb shell am start -n "$PKG/$ACT"
-sleep 3
-assert_app home2
+sleep 4
+FOCUS=$(adb shell dumpsys window 2>/dev/null | tr -d '\r' | grep -m1 mCurrentFocus || true)
+echo "FOCUS_BEFORE_CREATE=$FOCUS"
+echo "$FOCUS" | grep -q "$PKG" || { echo "Latch not focused"; exit 1; }
 
-EDIT_OK=
-if COORDS=$(tap_desc "Create rule"); then
-  adb shell input tap $COORDS
-  EDIT_OK=1
-elif COORDS=$(tap_desc "Add"); then
-  adb shell input tap $COORDS
-  EDIT_OK=1
+# Dump UI and require Latch package nodes
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1
+grep -q "package=\"$PKG\"" /tmp/ui.xml || { echo "UI not Latch"; head -c 800 /tmp/ui.xml; exit 1; }
+
+# Tap Create rule or Add using coordinates from this dump only
+python3 - <<'PY2'
+import re, subprocess
+xml=open("/tmp/ui.xml",encoding="utf-8",errors="ignore").read()
+for label in ("Create rule", "Add"):
+    for attr in ("text", "content-desc"):
+        m=re.search(r'%s="%s"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'%(attr,re.escape(label)), xml)
+        if m:
+            x1,y1,x2,y2=map(int,m.groups())
+            x,y=(x1+x2)//2,(y1+y2)//2
+            print(f"tap {label} at {x},{y}")
+            subprocess.check_call(["adb","shell","input","tap",str(x),str(y)])
+            raise SystemExit(0)
+raise SystemExit("Create rule / Add not found in Latch UI")
+PY2
+sleep 4
+
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1
+# Must stay in Latch and show editor chrome
+if ! grep -q "package=\"$PKG\"" /tmp/ui.xml; then
+  echo "ERROR: left Latch after Create rule"
+  head -c 1200 /tmp/ui.xml || true
+  exit 1
 fi
-if [ -z "$EDIT_OK" ]; then
-  adb shell input tap 540 1180
-fi
-sleep 3
-adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
-adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
-if ! grep -qiE 'New rule|Edit rule' /tmp/ui.xml; then
-  adb shell am force-stop "$PKG"
-  adb shell am start -W -n "$PKG/$ACT"
-  sleep 3
-  if COORDS=$(tap_desc "Create rule"); then
-    adb shell input tap $COORDS
-    sleep 3
-  fi
-fi
-adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
-adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
-if ! grep -qiE 'New rule|Edit rule' /tmp/ui.xml; then
-  echo "ERROR: 04 not on edit form"
-  head -c 1500 /tmp/ui.xml || true
+if ! grep -qiE 'New rule|Edit rule|text="Name"' /tmp/ui.xml; then
+  echo "ERROR: editor not visible"
+  # still capture for debug but fail
+  adb exec-out screencap -p > raw/04_edit_rule.png || true
+  head -c 1200 /tmp/ui.xml || true
   exit 1
 fi
 adb exec-out screencap -p > raw/04_edit_rule.png
