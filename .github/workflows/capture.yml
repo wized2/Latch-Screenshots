@@ -14,7 +14,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -42,16 +42,17 @@ jobs:
           cp app/build/outputs/apk/debug/*-debug.apk "$GITHUB_WORKSPACE/apk/latch.apk"
           ls -la "$GITHUB_WORKSPACE/apk/"
 
-      - name: Emulator + screenshots
+      - name: Emulator + screenshots (Pixel 9 class)
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
-          target: default
+          api-level: 34
+          target: google_apis
           arch: x86_64
-          profile: pixel_2
+          profile: pixel_8
           force-avd-creation: true
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -skin 1080x2424
           disable-animations: true
+          emulator-boot-timeout: 900
           script: bash scripts/capture.sh
 
       - name: Commit screenshots
@@ -59,11 +60,13 @@ jobs:
           set -eux
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # drop old wrong 04 name if present
+          git rm -f screenshots/04_edit_or_create.png 2>/dev/null || true
           git add screenshots/*.png
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "chore: update screenshots"
+            git commit -m "chore: Pixel 9-class screenshots (API 34)"
             git push
           fi
 
