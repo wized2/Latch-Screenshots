@@ -125,11 +125,12 @@ adb shell input swipe $((W/2)) $((H*4/5)) $((W/2)) $((H/5)) 400
 sleep 1
 adb exec-out screencap -p > raw/03_settings_scrolled.png
 
-adb shell input keyevent KEYCODE_BACK
-sleep 2
+# Do NOT system-back from Settings — that can finish the Activity and show launcher.
+# Relaunch Latch for a clean home, then open New rule.
+adb shell am start -W -n "$PKG/$ACT" || adb shell am start -n "$PKG/$ACT"
+sleep 3
 assert_app home2
 
-# Prefer primary CTA "Create rule", then FAB "Add"
 EDIT_OK=
 if COORDS=$(tap_desc "Create rule"); then
   adb shell input tap $COORDS
@@ -139,36 +140,28 @@ elif COORDS=$(tap_desc "Add"); then
   EDIT_OK=1
 fi
 if [ -z "$EDIT_OK" ]; then
-  # Last resort: approximate FAB above gesture bar on 1080x2424
-  adb shell input tap 980 2100
+  adb shell input tap 540 1180
 fi
 sleep 3
-# If still not edit (e.g. wrong app), back and try Create rule again
 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
 adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
-if ! grep -qiE 'Trigger|Action|Save|Name|Condition|Edit rule|New rule' /tmp/ui.xml; then
-  adb shell am start -W -n "$PKG/$ACT" || true
-  sleep 2
+if ! grep -qiE 'New rule|Edit rule' /tmp/ui.xml; then
+  adb shell am force-stop "$PKG"
+  adb shell am start -W -n "$PKG/$ACT"
+  sleep 3
   if COORDS=$(tap_desc "Create rule"); then
     adb shell input tap $COORDS
     sleep 3
   fi
 fi
-assert_app edit
-adb exec-out screencap -p > raw/04_edit_rule.png
-# Must be on New rule / Edit rule form
 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
 adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
-if ! grep -qiE 'New rule|Edit rule|text="Name"|text="When"' /tmp/ui.xml; then
+if ! grep -qiE 'New rule|Edit rule' /tmp/ui.xml; then
   echo "ERROR: 04 not on edit form"
-  # dump a bit of xml for CI logs
-  head -c 2000 /tmp/ui.xml || true
+  head -c 1500 /tmp/ui.xml || true
   exit 1
 fi
-if grep -qiE 'Google Lens|Search with any image' /tmp/ui.xml; then
-  echo "ERROR: 04 still Google Lens"
-  exit 1
-fi
+adb exec-out screencap -p > raw/04_edit_rule.png
 
 # Frame with Pixel-like device chrome
 python3 <<'PY'
