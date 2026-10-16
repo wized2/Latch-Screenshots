@@ -7,6 +7,9 @@ adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
 
 adb install -r -t apk/latch.apk
+adb shell am force-stop com.google.android.googlequicksearchbox 2>/dev/null || true
+adb shell am force-stop com.google.android.apps.lens 2>/dev/null || true
+adb shell am force-stop com.android.camera2 2>/dev/null || true
 PKG=com.endroid.latch.debug
 ACT=com.endroid.latch.MainActivity
 
@@ -153,11 +156,17 @@ if ! grep -qiE 'Trigger|Action|Save|Name|Condition|Edit rule|New rule' /tmp/ui.x
 fi
 assert_app edit
 adb exec-out screencap -p > raw/04_edit_rule.png
-# Reject known-bad screens (Google Lens / launcher)
+# Must be on New rule / Edit rule form
 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
 adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
-if grep -qiE 'Google Lens|Search with any image|Gmail|Photos' /tmp/ui.xml; then
-  echo "ERROR: 04 captured wrong UI"
+if ! grep -qiE 'New rule|Edit rule|text="Name"|text="When"' /tmp/ui.xml; then
+  echo "ERROR: 04 not on edit form"
+  # dump a bit of xml for CI logs
+  head -c 2000 /tmp/ui.xml || true
+  exit 1
+fi
+if grep -qiE 'Google Lens|Search with any image' /tmp/ui.xml; then
+  echo "ERROR: 04 still Google Lens"
   exit 1
 fi
 
