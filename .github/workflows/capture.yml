@@ -2,12 +2,10 @@ name: Capture Latch screenshots
 
 on:
   workflow_dispatch:
-    inputs:
-      apk_source:
-        description: 'release or build'
-        required: true
-        default: build
-        type: string
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/capture.yml'
 
 permissions:
   contents: write
@@ -35,7 +33,7 @@ jobs:
       - name: Obtain Latch APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SRC: ${{ github.event.inputs.apk_source }}
+          SRC: build
         run: |
           set -eux
           mkdir -p apk
