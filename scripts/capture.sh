@@ -126,14 +126,40 @@ adb shell input keyevent KEYCODE_BACK
 sleep 2
 assert_app home2
 
-if COORDS=$(tap_desc "Add"); then
+# Prefer primary CTA "Create rule", then FAB "Add"
+EDIT_OK=
+if COORDS=$(tap_desc "Create rule"); then
   adb shell input tap $COORDS
-else
-  adb shell input tap $((W - 100)) $((H - 180))
+  EDIT_OK=1
+elif COORDS=$(tap_desc "Add"); then
+  adb shell input tap $COORDS
+  EDIT_OK=1
+fi
+if [ -z "$EDIT_OK" ]; then
+  # Last resort: approximate FAB above gesture bar on 1080x2424
+  adb shell input tap 980 2100
 fi
 sleep 3
+# If still not edit (e.g. wrong app), back and try Create rule again
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
+adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
+if ! grep -qiE 'Trigger|Action|Save|Name|Condition|Edit rule|New rule' /tmp/ui.xml; then
+  adb shell am start -W -n "$PKG/$ACT" || true
+  sleep 2
+  if COORDS=$(tap_desc "Create rule"); then
+    adb shell input tap $COORDS
+    sleep 3
+  fi
+fi
 assert_app edit
 adb exec-out screencap -p > raw/04_edit_rule.png
+# Reject known-bad screens (Google Lens / launcher)
+adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true
+adb pull /sdcard/ui.xml /tmp/ui.xml >/dev/null 2>&1 || true
+if grep -qiE 'Google Lens|Search with any image|Gmail|Photos' /tmp/ui.xml; then
+  echo "ERROR: 04 captured wrong UI"
+  exit 1
+fi
 
 # Frame with Pixel-like device chrome
 python3 <<'PY'
