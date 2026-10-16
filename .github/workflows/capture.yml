@@ -53,7 +53,10 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -skin 1080x2424
           disable-animations: true
           emulator-boot-timeout: 900
-          script: bash scripts/capture.sh
+          script: |
+            pip install --user Pillow -q
+            export PATH="$HOME/.local/bin:$PATH"
+            bash scripts/capture.sh
 
       - name: Commit screenshots
         run: |
